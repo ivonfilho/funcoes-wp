@@ -1,0 +1,101 @@
+<?php
+/*
+Plugin Name: Restringir Categorias e Tags para Colaborador
+Description: Define categorias e tags permitidas para cada colaborador.
+Version: 1.0
+Author: Ivon Filho
+*/
+
+// Adiciona campos ao perfil do usuário
+function ivon_custom_user_profile_fields($user) {
+if (in_array('contributor', $user->roles)) {
+echo '<h3>Categorias e Tags permitidas</h3><table class="form-table">';
+ivon_display_allowed_taxonomy_fields($user, 'categorias', 'allowed_categories');
+ivon_display_allowed_taxonomy_fields($user, 'tags', 'allowed_tags');
+echo '</table>';
+}
+}
+add_action('show_user_profile', 'ivon_custom_user_profile_fields');
+add_action('edit_user_profile', 'ivon_custom_user_profile_fields');
+
+// Função auxiliar para mostrar campos de taxonomia permitidos
+function ivon_display_allowed_taxonomy_fields($user, $taxonomy, $field_name) {
+?>
+<tr>
+<th>
+<label for="<?php echo $field_name; ?>"><?php echo ucfirst($taxonomy); ?> permitidas</label>
+</th>
+<td>
+<input type="text" name="<?php echo $field_name; ?>" id="<?php echo $field_name; ?>" value="<?php echo esc_attr(get_the_author_meta($field_name, $user->ID)); ?>" class="regular-text" />
+<br />
+<span class="description">Insira os IDs das <?php echo $taxonomy; ?> permitidas, separados por vírgula.</span>
+</td>
+</tr>
+<?php
+}
+
+// Salva os campos do perfil
+function ivon_save_custom_user_profile_fields($user_id) {
+if (!current_user_can('edit_user', $user_id)) return;
+update_user_meta($user_id, 'allowed_categories', $_POST['allowed_categories']);
+update_user_meta($user_id, 'allowed_tags', $_POST['allowed_tags']);
+}
+add_action('personal_options_update', 'ivon_save_custom_user_profile_fields');
+add_action('edit_user_profile_update', 'ivon_save_custom_user_profile_fields');
+
+// Filtra taxonomias no editor de postagens
+function ivon_custom_taxonomy_metabox_content($post, $taxonomy, $input_name) {
+$user_id = get_current_user_id();
+$allowed_taxonomy = get_user_meta($user_id, $input_name, true);
+$allowed_array = explode(',', $allowed_taxonomy);
+$terms = get_terms(array('taxonomy' => $taxonomy, 'include' => $allowed_array, 'hide_empty' => false));
+
+foreach ($terms as $term) {
+$checked = has_term($term->term_id, $taxonomy, $post) ? 'checked' : '';
+echo "<input type='checkbox' name='{$taxonomy}[]' value='{$term->term_id}' {$checked}> {$term->name}<br />";
+}
+}
+
+// Funções específicas para exibir Metaboxes customizadas
+function ivon_custom_categories_metabox_content($post) {
+ivon_custom_taxonomy_metabox_content($post, 'category', 'allowed_categories');
+}
+function ivon_custom_tags_metabox_content($post) {
+ivon_custom_taxonomy_metabox_content($post, 'post_tag', 'allowed_tags');
+}
+
+add_action('add_meta_boxes', function() {
+remove_meta_box('categorydiv', 'post', 'side');
+add_meta_box('ivon_custom_categorydiv', __('Categories'), 'ivon_custom_categories_metabox_content', 'post', 'side', 'core');
+
+remove_meta_box('tagsdiv-post_tag', 'post', 'side');
+add_meta_box('ivon_custom_tagsdiv', __('Tags'), 'ivon_custom_tags_metabox_content', 'post', 'side', 'core');
+});
+
+// Função para enviar e-mail ao administrador quando um post é enviado para revisão
+function ivon_notify_admin_on_pending_post($new_status, $old_status, $post) {
+if ($new_status == 'pending' && $old_status != 'pending' && $post->post_type == 'post') {
+$admin_email = get_option('admin_email');
+$subject = "Novo post pendente de revisão";
+$message = "Um novo post foi enviado para revisão por " . get_the_author_meta('display_name', $post->post_author) . ".\n\n";
+$message .= "Título: " . $post->post_title . "\n\n";
+$message .= "Acesse o painel administrativo para revisar e publicar este post.";
+wp_mail($admin_email, $subject, $message);
+}
+}
+add_action('transition_post_status', 'ivon_notify_admin_on_pending_post', 10, 3);
+
+// Restringe a visibilidade de postagens no painel de administração para colaboradores
+function ivon_restrict_posts_by_author($query) {
+global $pagenow;
+
+if ('edit.php' != $pagenow || !$query->is_admin)
+return $query;
+
+if (!current_user_can('edit_others_posts')) {
+global $user_ID;
+$query->set('author', $user_ID);
+}
+return $query;
+}
+add_filter('pre_get_posts', 'ivon_restrict_posts_by_author');
