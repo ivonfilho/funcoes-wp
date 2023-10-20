@@ -1,0 +1,11 @@
+function show_scheduled_posts_for_all( $query ) {
+// Inclui o status 'future' na consulta para o seu post type específico
+if ( $query->get( 'post_type' ) === 'licitacao' ) {
+$statuses = (array) $query->get( 'post_status' );
+if ( ! in_array( 'future', $statuses ) ) {
+$statuses[] = 'future';
+$query->set( 'post_status', $statuses );
+}
+}
+}
+add_action( 'pre_get_posts', 'show_scheduled_posts_for_all' );
